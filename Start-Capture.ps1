@@ -2,19 +2,23 @@
 .SYNOPSIS
     Automates the preparation for capturing an application installation.
 .DESCRIPTION
-    This script downloads and extracts Regshot, the snapshotting tool, to a specified directory.
-    It then launches Regshot and provides instructions for the user to begin the capture process.
-    This is the FIRST step in the migration workflow and should be run on the SOURCE machine.
+    This script installs Regshot using Chocolatey package manager, then launches it and provides instructions for the user to begin the capture process.
+    This is the FIRST step in the migration workflow and should be run ONLY on the SOURCE machine where you want to capture software installation.
+    No software installation is needed on the target machine.
 .EXAMPLE
     .\Start-Capture.ps1
-    Downloads and runs Regshot in the current user's Downloads folder.
+    Installs Regshot using Chocolatey and runs it.
+.NOTES
+    Requires administrative privileges to install Chocolatey and Regshot.
+    The target machine will not require Regshot or Chocolatey - only the Deploy-App.ps1 script.
 #>
 
 # --- Configuration ---
-# The folder where Regshot will be downloaded and extracted.
-$WorkingDir = Join-Path $env:USERPROFILE "Downloads\AppCapture"
-$RegshotZipFile = Join-Path $WorkingDir "regshot.zip"
-$RegshotUrl = "https://downloads.sourceforge.net/project/regshot/regshot/1.9.0/regshot-1.9.0-x64.zip" # URL for the 64-bit version
+# Path to Regshot executable after Chocolatey installation
+$RegshotExePath = "C:\Program Files\Regshot-x86\Regshot-x86.exe"
+if ([Environment]::Is64BitOperatingSystem) {
+    $RegshotExePath = "C:\Program Files\Regshot-x64\Regshot-x64.exe"
+}
 
 # --- Functions ---
 function Write-Log {
@@ -27,43 +31,59 @@ function Write-Log {
 
 # --- Main Execution ---
 
-# Check if running as Administrator, which is not required but good practice for installs.
+# Check if running as Administrator and restart with elevation if needed
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
-    Write-Log "INFO: This script doesn't require Admin rights, but you will need them to install most software." -Color Yellow
+    Write-Log "This script requires administrative privileges to install Chocolatey and Regshot." -Color Yellow
+    Write-Log "Requesting elevation..." -Color Cyan
+
+    # Restart script with admin rights
+    $scriptPath = $MyInvocation.MyCommand.Path
+    $argumentList = "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`""
+
+    try {
+        Start-Process PowerShell -Verb RunAs -ArgumentList $argumentList -ErrorAction Stop
+        exit
+    }
+    catch {
+        Write-Log "ERROR: Failed to restart with administrative privileges. Error: $_" -Color Red
+        Write-Log "Please run this script as an administrator." -Color Yellow
+        pause
+        exit
+    }
 }
 
 Write-Log "Starting Capture Preparation..." -Color Magenta
 
-# Create the working directory if it doesn't exist
-if (-not (Test-Path -Path $WorkingDir)) {
-    Write-Log "Creating working directory at: $WorkingDir"
-    New-Item -ItemType Directory -Path $WorkingDir -Force | Out-Null
-}
-
-# Determine the path to the Regshot executable
-$RegshotExePath = Join-Path $WorkingDir "regshot-1.9.0-x64\Regshot-x64.exe"
-
-# Check if Regshot is already downloaded and extracted
-if (Test-Path -Path $RegshotExePath) {
-    Write-Log "Regshot already exists. Skipping download." -Color Green
-}
-else {
-    Write-Log "Regshot not found. Starting download from: $RegshotUrl" -Color Cyan
+# Check if Chocolatey is installed
+if (-not (Get-Command choco.exe -ErrorAction SilentlyContinue)) {
+    Write-Log "Chocolatey not found. Installing Chocolatey..." -Color Cyan
     try {
-        # Download the file
-        Invoke-WebRequest -Uri $RegshotUrl -OutFile $RegshotZipFile -ErrorAction Stop
-        Write-Log "Download complete." -Color Green
-
-        # Extract the archive
-        Write-Log "Extracting Regshot archive..."
-        Expand-Archive -Path $RegshotZipFile -DestinationPath $WorkingDir -Force -ErrorAction Stop
-        Write-Log "Extraction complete." -Color Green
+        # Install Chocolatey
+        Set-ExecutionPolicy Bypass -Scope Process -Force
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+        Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+        Write-Log "Chocolatey installed successfully." -Color Green
     }
     catch {
-        Write-Log "ERROR: Failed to download or extract Regshot. Error: $_" -Color Red
-        Write-Log "Please check the URL and your internet connection." -Color Yellow
-        # Stop the script if the download fails
+        Write-Log "ERROR: Failed to install Chocolatey. Error: $_" -Color Red
+        return
+    }
+}
+
+# Check if Regshot is already installed
+if (Test-Path -Path $RegshotExePath) {
+    Write-Log "Regshot already installed. Skipping installation." -Color Green
+}
+else {
+    Write-Log "Installing Regshot using Chocolatey..." -Color Cyan
+    try {
+        # Install Regshot using Chocolatey
+        & choco install regshot -y
+        Write-Log "Regshot installed successfully." -Color Green
+    }
+    catch {
+        Write-Log "ERROR: Failed to install Regshot. Error: $_" -Color Red
         return
     }
 }
@@ -87,5 +107,9 @@ Write-Log "3. Install the application you want to capture."
 Write-Log "4. Once installation is finished, return to Regshot."
 Write-Log "5. Click the '2nd shot' button, then 'Shot and Save'."
 Write-Log "6. Finally, click 'Compare' to generate the report of all changes."
+Write-Log "7. Create a folder and package the files according to the readme instructions."
+Write-Log "8. On the TARGET machine, you will NOT need Regshot - just run Deploy-App.ps1."
 Write-Log "------------------------------------------------------------------" -Color Magenta
+Write-Log "NOTE: Regshot was automatically installed using Chocolatey package manager." -Color Cyan
+Write-Log "NOTE: This installation is ONLY needed on the source machine, not on the target." -Color Yellow
 

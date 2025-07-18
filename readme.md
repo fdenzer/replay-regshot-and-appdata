@@ -1,126 +1,121 @@
-Phase 1: Capture the Installation ("The Recorder")
+# AppMigrator
 
-This process is performed on your source machine (e.g., the Windows 11 PC).
+A tool to capture and migrate Windows application installations between machines without requiring traditional installers.
 
-    Prepare a Clean State: For the best results, use a clean system or a virtual machine. Close all other applications.
+## Overview
 
-    Download Regshot: Get the latest version of Regshot and extract it.
+AppMigrator captures registry changes and file system modifications during application installation and packages them for deployment on other machines. This allows migrating applications to machines where installers may be unavailable or unsuitable.
 
-    Take the "Before" Snapshot:
+    ## Features
 
-        Run Regshot.exe.
+    - Automatic installation of Regshot using Chocolatey
+    - Registry change capture and playback
+    - File system modification tracking
+    - Simple deployment to target machines
 
-        Click the "1st shot" button and then "Shot and Save". This will scan your entire registry and (optionally) specified directories. It will save a .hiv file. This can take a minute.
+    ## Requirements
 
-        Make sure to include the C:\Users and C:\ProgramData directories in the scan, as many programs write here.
+    - Source machine: Windows 7 SP1+, 8.1, 10, or 11 with PowerShell 5.1+
+    - Target machine: Windows 7 SP1+, 8.1, 10, or 11 with PowerShell 5.1+
+    - Administrative privileges on both machines
+    - Windows 10/11 recommended for best experience and support
 
-    Install Your Program:
+    ## Installation
 
-        DO NOT CLOSE REGSHOT.
+    No installation required. Clone or download this repository to get started:
 
-        Run the installer for the program you want to capture (e.g., 7-Zip, Notepad++, etc.).
+    ```bash
+    git clone https://github.com/yourusername/appmigrator.git
+    cd appmigrator
+    ```
 
-        Complete the installation as you normally would. Configure any initial settings you want to be part of the package.
+    Note: PowerShell 5.1 is built into Windows 10/11, but requires installation of Windows Management Framework 5.1 on Windows 7 SP1 and 8.1.
 
-    Take the "After" Snapshot:
+## Usage
 
-        Go back to Regshot.
+### 1. Capture an Application (Source Machine)
 
-        Click the "2nd shot" button and then "Shot and Save". This takes the "after" snapshot.
+1. Run the capture script with administrative privileges:
 
-    Compare and Generate the Report:
+```powershell
+.\Start-Capture.ps1
+```
 
-        Click the "Compare" button.
+2. The script will:
+   - Install Chocolatey if not present
+   - Install Regshot via Chocolatey
+   - Launch Regshot automatically
 
-        Regshot will generate a txt report detailing every single change:
+3. In Regshot:
+   - Take first snapshot before installation
+   - Install your application
+   - Take second snapshot after installation
+   - Generate comparison report
 
-            Registry keys and values added/modified.
+### 2. Package the Application
 
-            Files and folders created/modified.
+1. Create a new folder for your migration package
+2. Using the Regshot report, copy relevant files:
 
-            A summary at the top.
+   - Copy main program files from `C:\Program Files\*` or `C:\Program Files (x86)\*`
+   - Copy AppData files from user profile if needed
+   - Copy ProgramData files if needed
 
-Phase 2: Package the Application ("The Migration File")
+3. Create a registry file:
+   - Extract registry keys from the Regshot report
+   - Save as `changes.reg` with proper formatting:
 
-Now you have the report and the installed files on your system. You need to bundle them for transfer.
+```reg
+Windows Registry Editor Version 5.00
 
-    Create a Root Folder: Create a new folder on your desktop, for example, MyAwesomeMigration.
+[HKEY_CURRENT_USER\Software\YourApp]
+"InstallPath"="C:\\Program Files\\YourApp"
+```
 
-    Copy Program Files:
+4. Copy the `Deploy-App.ps1` script to your package
 
-        Look at the Regshot report under "Folders added" and "Files added".
+5. Package structure should look like:
 
-        Find the main installation directory (e.g., C:\Program Files\MyAwesomeApp).
-
-        Copy this entire folder into your MyAwesomeMigration folder.
-
-    Copy AppData/Other Files:
-
-        Check the report for files added to C:\Users\YourUser\AppData\Local, ...\Roaming, or C:\ProgramData.
-
-        Recreate that folder structure inside MyAwesomeMigration. For example, if a file was added to AppData\Roaming\MyAwesomeApp, you would create MyAwesomeMigration\AppData\Roaming\MyAwesomeApp and place the file there.
-
-    Create a Registry File:
-
-        Open the Regshot txt report.
-
-        Scroll down to the "Keys added" and "Values added/modified" sections.
-
-        Carefully copy all of these registry entries into a new text file.
-
-        Save this file as changes.reg inside your MyAwesomeMigration folder.
-
-        Crucially, you must format it as a valid .reg file. It needs Windows Registry Editor Version 5.00 at the top, and each key must be enclosed in square brackets.
-
-    Example changes.reg format:
-
-    Windows Registry Editor Version 5.00
-
-    [HKEY_CURRENT_USER\Software\MyAwesomeCompany]
-
-    [HKEY_CURRENT_USER\Software\MyAwesomeCompany\MyAwesomeApp]
-    "InstallPath"="C:\\Program Files\\MyAwesomeApp"
-    "Version"="1.2.3"
-
-    [HKEY_CLASSES_ROOT\.awesome]
-    @="MyAwesomeApp.File"
-
-    Get the Deployment Script:
-
-        Copy the PowerShell script I've provided below and save it as Deploy-App.ps1 in the root of your MyAwesomeMigration folder.
-
-At the end of this phase, your MyAwesomeMigration folder should look something like this:
-
-```text
-MyAwesomeMigration/
+```
+AppPackage/
 ├── Program Files/
-│   └── MyAwesomeApp/
-│       ├── AwesomeApp.exe
-│       └── ...other files...
+│   └── YourApp/
 ├── AppData/
 │   └── Roaming/
-│       └── MyAwesomeApp/
-│           └── settings.xml
+│       └── YourApp/
 ├── changes.reg
 └── Deploy-App.ps1
 ```
 
-Phase 3: Deploy the Application ("The Replayer")
+### 3. Deploy the Application (Target Machine)
 
-Take the entire MyAwesomeMigration folder (e.g., on a USB stick) to the target machine (e.g., the Windows 10 PC).
+1. Transfer the package folder to the target machine
 
-    Open PowerShell as Administrator: Right-click the Start button and select "Windows PowerShell (Admin)" or "Terminal (Admin)".
+2. Run PowerShell as Administrator
 
-    Allow Script Execution (if needed): If you've never run PowerShell scripts before, you may need to change the execution policy.
+3. Navigate to the package folder:
 
-    Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
+```powershell
+cd "C:\path\to\AppPackage"
+```
 
-    Navigate to the Folder:
+4. Run the deployment script:
 
-    cd "D:\Path\To\MyAwesomeMigration"
+```powershell
+.\Deploy-App.ps1
+```
 
-    Run the Deployment Script:
+The script will copy all files to their proper locations and import the registry changes.
 
-    .\Deploy-App.ps1
+## How It Works
 
-The script will automatically copy the files to the correct locations (C:\Program Files, C:\Users\CurrentUser\AppData, etc.) and import the registry changes. If all goes well, the application will appear "installed" on the target machine.
+- **Start-Capture.ps1**: Installs and runs Regshot to capture before/after system states
+- **Deploy-App.ps1**: Copies files and imports registry changes on the target machine
+
+## License
+
+EUPL-v1.2
+
+## Contributions
+
+Contributions are welcome! Please feel free to submit a Pull Request.
